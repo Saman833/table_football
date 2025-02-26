@@ -30,8 +30,11 @@ class Player:
         self.right_x = None
         self.top_y = None
         self.bottom_y = None
+        self.directions = [0,0]
+
 
     def move(self, direction):
+        self.directions = direction.copy()
         self.x, self.y = self.x + direction[0] * self.x_speed, self.y + direction[1] * self.y_speed
         self.x -=  direction[0] * self.x_speed * (self.x + self.radius > self.right_x - 10 or self.x - self.radius < self.left_x)
         self.y -= direction[1] * self.y_speed * (self.y + self.radius > self.bottom_y - 10 or self.y - self.radius < self.top_y)
@@ -47,8 +50,19 @@ class Player:
     def  update_boundries(self, left_x, right_x, top_y, bottom_y):
         self.left_x = left_x
         self.right_x = right_x
-        self.top_y = top_y
-        self.bottom_y = bottom_y
+        try : 
+                
+            if self.color =="red" :
+                self.top_y = top_y
+                self.bottom_y = top_y/2
+            else:
+                self.top_y = top_y/2
+                self.bottom_y = bottom_y
+        except Exception as e: 
+            print("bad")
+            self.top_y = top_y
+            self.bottom_y = bottom_y
+            pass 
 
 
 class Ball:
@@ -75,8 +89,7 @@ class Ball:
     def check_accident_with_player(self, player: Player):
         distance = ((self.x - player.x) ** 2 + (self.y - player.y) ** 2) ** 0.5
         if abs(distance - player.radius - self.radius) < 7:
-            self.direction[0] *= -1
-            self.direction[1] *= -1
+            self.direction=player.directions.copy()
             self.speed = self.initial_speed.copy()
 
     def check_if_goal(self):
@@ -100,6 +113,7 @@ class Game:
         self.screen_height = 600
         self.player1 = player1
         self.player2 = player2
+
         self.player1.update_boundries(0, self.screen_width, 0, self.screen_height)
         self.player2.update_boundries(0, self.screen_width, 0, self.screen_height)
         self.ball = Ball(self.screen_width // 2, self.screen_height // 2, [0, 0], 10)

@@ -11,6 +11,7 @@ player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radi
 
 
 class WebSocketServer:
+    global player1, player2
     def __init__(self, host='0.0.0.0', port=8080):
         self.server = WebsocketServer(host=host, port=port)
         self.clients = []
