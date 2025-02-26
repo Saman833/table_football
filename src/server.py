@@ -6,8 +6,8 @@ from websocket_server import WebsocketServer
 import time
 from game_engine import Game, Player
 
-player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=10, name="Player1", speed=[2, 2])
-player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=10, name="Player2", speed=[2, 2])
+player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=20, name="Player1", speed=[7, 7])
+player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=20, name="Player2", speed=[7, 7])
 
 
 class WebSocketServer:
@@ -42,7 +42,7 @@ class WebSocketServer:
     def client_left(self, client, server):
         self.clients.remove(client)
         print(f"Client disconnected: {client['id']}")
-        self.stop_game()
+        #self.stop_game()
 
     def stop_game(self):
         self.send_to_all("Game Stopped")
@@ -65,6 +65,10 @@ class WebSocketServer:
         while True:
             if self.game_started:
                 self.game.game_step(self.moves_info)
+                self.moves_info = {
+                    "player1": [0, 0],
+                    "player2": [0, 0]
+                }
                 self.send_to_all(self.game.get_updates())
             time.sleep(0.01)
 
