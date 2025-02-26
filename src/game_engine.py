@@ -89,11 +89,11 @@ class Ball:
 
 class Game:
     def __init__(self, player1: Player, player2: Player):
-        self.screen_width = 400
+        self.screen_width = 800
         self.screen_height = 600
         self.player1 = player1
         self.player2 = player2
-        self.ball = Ball(self.screen_width // 2, self.screen_height // 2, 5, 10)
+        self.ball = Ball(self.screen_width // 2, self.screen_height // 2, [0, 0], 10)
         self.ball_speed = [1, -1]
 
     def players_update(self, move_info):

@@ -1,444 +1,318 @@
 import pygame
 import json
+import websocket
+import sys
 import threading
 import time
-import sys
-import socket
-import base64
-import random
-import struct
-import hashlib
+import os
 
-# Game settings
-WIDTH, HEIGHT = 800, 600
-PADDLE_RADIUS = 40
-BALL_RADIUS = 20
+# Enable this for more verbose WebSocket logging
+# websocket.enableTrace(False)
 
-# Colors
-WHITE = (255, 255, 255)
-RED = (255, 0, 0)
-BLUE = (0, 0, 255)
-BLACK = (0, 0, 0)
-GRAY = (200, 200, 200)
-GREEN = (0, 255, 0)
-
-class WebSocketClient:
-    def __init__(self, url):
-        parts = url.replace('ws://', '').split(':')
-        self.host = parts[0]
-        self.port = int(parts[1]) if len(parts) > 1 else 8080
-        self.socket = None
+class MinimalAirHockeyClient:
+    def __init__(self):
+        print("Initializing client...")
+        self.server_url = "ws://localhost:8080"
         self.connected = False
-        self.callback = None
-        self.running = False
-        self.thread = None
+        self.game_state = None
+        self.running = True
 
-    def connect(self):
-        try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.connect((self.host, self.port))
+        # Store the last message for debugging
+        self.last_message = None
 
-            # Generate WebSocket key - MUST be properly formatted for handshake
-            key = base64.b64encode(bytes([random.randint(0, 255) for _ in range(16)])).decode()
+        # Lock for thread-safe access to game state
+        self.state_lock = threading.Lock()
 
-            # Send handshake
-            handshake = (
-                f"GET / HTTP/1.1\r\n"
-                f"Host: {self.host}:{self.port}\r\n"
-                f"Upgrade: websocket\r\n"
-                f"Connection: Upgrade\r\n"
-                f"Sec-WebSocket-Key: {key}\r\n"
-                f"Origin: http://{self.host}:{self.port}\r\n"  # Added Origin header
-                f"Sec-WebSocket-Version: 13\r\n\r\n"
-            )
-
-            self.socket.send(handshake.encode())
-
-            # Validate server response
-            response = b""
-            while b"\r\n\r\n" not in response:
-                chunk = self.socket.recv(4096)
-                if not chunk:
-                    raise ConnectionError("Connection closed during handshake")
-                response += chunk
-
-            if b"101 Switching Protocols" in response:
-                self.connected = True
-                self.running = True
-                self.thread = threading.Thread(target=self._receive_loop)
-                self.thread.daemon = True
-                self.thread.start()
-                print("WebSocket connected successfully")
-                return True
-            else:
-                print(f"WebSocket handshake failed: {response.decode('utf-8', errors='replace')}")
-                return False
-
-        except Exception as e:
-            print(f"Connection error: {e}")
-            if self.socket:
-                self.socket.close()
-            return False
-
-    def _receive_loop(self):
-        try:
-            buffer = bytearray()
-
-            while self.running:
-                chunk = self.socket.recv(4096)
-                if not chunk:
-                    raise ConnectionError("Connection closed by server")
-
-                buffer.extend(chunk)
-
-                # Process complete frames in buffer
-                while len(buffer) >= 2:
-                    # Parse header
-                    fin = (buffer[0] & 0x80) != 0
-                    opcode = buffer[0] & 0x0F
-                    mask = (buffer[1] & 0x80) != 0
-                    payload_len = buffer[1] & 0x7F
-
-                    header_length = 2
-
-                    # Extended payload length
-                    if payload_len == 126:
-                        if len(buffer) < 4:
-                            break  # Need more data
-                        payload_len = struct.unpack("!H", buffer[2:4])[0]
-                        header_length += 2
-                    elif payload_len == 127:
-                        if len(buffer) < 10:
-                            break  # Need more data
-                        payload_len = struct.unpack("!Q", buffer[2:10])[0]
-                        header_length += 8
-
-                    # Masking key
-                    if mask:
-                        if len(buffer) < header_length + 4:
-                            break  # Need more data
-                        masking_key = buffer[header_length:header_length+4]
-                        header_length += 4
-
-                    # Check if complete frame is available
-                    if len(buffer) < header_length + payload_len:
-                        break  # Need more data
-
-                    # Extract and process payload
-                    payload = buffer[header_length:header_length+payload_len]
-
-                    # Unmask if needed
-                    if mask:
-                        unmasked = bytearray(payload_len)
-                        for i in range(payload_len):
-                            unmasked[i] = payload[i] ^ masking_key[i % 4]
-                        payload = unmasked
-
-                    # Handle close frames
-                    if opcode == 0x8:  # Close frame
-                        self.close()
-                        return
-
-                    # Handle data frames
-                    if opcode == 0x1:  # Text frame
-                        message = payload.decode('utf-8', errors='replace')
-                        if self.callback:
-                            self.callback(message)
-
-                    # Remove processed frame from buffer
-                    buffer = buffer[header_length+payload_len:]
-
-        except ConnectionError as e:
-            print(f"Connection closed: {e}")
-        except Exception as e:
-            print(f"Receive error: {e}")
-        finally:
-            self.connected = False
-            print("WebSocket connection closed")
-
-    def send(self, message):
-        """Send a text message with proper masking"""
-        if not self.connected:
-            return False
-
-        try:
-            data = message.encode('utf-8')
-            length = len(data)
-
-            # Create header
-            frame = bytearray()
-
-            # Byte 1: FIN + opcode (0x81 for text frame)
-            frame.append(0x81)
-
-            # Byte 2: Masked flag + payload length
-            # IMPORTANT: The mask bit (0x80) must be set for client-to-server messages
-            if length < 126:
-                frame.append(0x80 | length)  # Set mask bit (0x80) and include length
-            elif length < 65536:
-                frame.append(0x80 | 126)  # Set mask bit with extended length indicator
-                frame.extend(struct.pack('!H', length))  # 2-byte length
-            else:
-                frame.append(0x80 | 127)  # Set mask bit with extended length indicator
-                frame.extend(struct.pack('!Q', length))  # 8-byte length
-
-            # Generate a random mask key
-            mask = bytes([random.randint(0, 255) for _ in range(4)])
-            frame.extend(mask)
-
-            # Mask the payload
-            masked_data = bytearray(length)
-            for i in range(length):
-                masked_data[i] = data[i] ^ mask[i % 4]
-
-            # Add the masked payload
-            frame.extend(masked_data)
-
-            # Send everything in one call to avoid fragmentation
-            self.socket.sendall(frame)
-            return True
-
-        except Exception as e:
-            print(f"Send error: {e}")
-            self.connected = False
-            return False
-
-    def set_callback(self, callback):
-        self.callback = callback
-
-    def close(self):
-        if not self.connected:
-            return
-
-        try:
-            # Send close frame with proper masking
-            close_frame = bytearray()
-            close_frame.append(0x88)  # FIN + Close opcode
-            close_frame.append(0x82)  # Masked + payload length 2
-
-            # Random mask
-            mask = bytes([random.randint(0, 255) for _ in range(4)])
-            close_frame.extend(mask)
-
-            # Status code 1000 (normal closure) - properly masked
-            status_code = bytearray([0x03, 0xe8])  # 1000 in bytes
-            for i in range(2):
-                close_frame.append(status_code[i] ^ mask[i % 4])
-
-            self.socket.send(close_frame)
-        except:
-            pass
-
-        self.running = False
-        self.connected = False
-
-        try:
-            self.socket.close()
-        except:
-            pass
-
-
-class AirHockeyClient:
-    def __init__(self, server_url="ws://localhost:8080"):
-        # Initialize pygame
+        # Initialize pygame before creating any game objects
         pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Air Hockey Game")
-        self.clock = pygame.time.Clock()
 
-        # Game state
-        self.player1 = {"x": 200, "y": 200}
-        self.player2 = {"x": 500, "y": 200}
-        self.ball = {"x": 350, "y": 200}
-
-        # Connection state
-        self.connected = False
-        self.player_num = None  # Will be 0 (player1) or 1 (player2)
-        self.server_url = server_url
-        self.ws = None
-        self.game_started = False
-
-        # Message handling
-        self.lock = threading.Lock()
-
-    def on_message(self, message):
+        # Set display mode with safe defaults
+        self.width, self.height = 800, 600
+        self.screen = None
         try:
-            print(f"Received: {message}")
+            self.screen = pygame.display.set_mode((self.width, self.height))
+            pygame.display.set_caption("Air Hockey Minimal Client")
+        except pygame.error as e:
+            print(f"Error setting display mode: {e}")
+            sys.exit(1)
 
-            # Server might send "Game Stopped" as a string
-            if message == "Game Stopped":
-                print("Game stopped by server")
-                self.game_started = False
-                return
+        # Basic colors
+        self.WHITE = (255, 255, 255)
+        self.BLACK = (0, 0, 0)
+        self.RED = (255, 0, 0)
+        self.BLUE = (0, 0, 255)
+        self.GRAY = (100, 100, 100)
 
-            # Parse the game state
-            data = json.loads(message)
+        # Create WebSocket connection in a separate thread
+        self.ws = None
+        threading.Thread(target=self.connect_websocket, daemon=True).start()
 
-            with self.lock:
-                # Check if we need to parse nested JSON strings
-                if "player1" in data:
-                    # Fix: Parse the nested JSON string for player1
-                    if isinstance(data["player1"], str):
-                        self.player1 = json.loads(data["player1"])
-                    else:
-                        self.player1 = data["player1"]
+        print("Client initialized.")
 
-                # Handle both versions of the key (with and without typo)
-                if "player2" in data:
-                    # Fix: Parse the nested JSON string for player2
-                    if isinstance(data["player2"], str):
-                        self.player2 = json.loads(data["player2"])
-                    else:
-                        self.player2 = data["player2"]
-                elif "plater2" in data:  # Handle original typo from server
-                    # Fix: Parse the nested JSON string for plater2
-                    if isinstance(data["plater2"], str):
-                        self.player2 = json.loads(data["plater2"])
-                    else:
-                        self.player2 = data["plater2"]
+    def connect_websocket(self):
+        """Connect to WebSocket server in a separate thread"""
+        try:
+            print(f"Connecting to {self.server_url}...")
 
-                if "ball" in data:
-                    # Fix: Parse the nested JSON string for ball
-                    if isinstance(data["ball"], str):
-                        self.ball = json.loads(data["ball"])
-                    else:
-                        self.ball = data["ball"]
+            # Define WebSocket callbacks
+            def on_open(ws):
+                print("WebSocket connection opened")
+                self.connected = True
 
-                # Check for status
-                if "status" in data:
-                    if data["status"] == "connected" and "player_id" in data:
-                        self.player_num = data["player_id"] - 1
-                        print(f"Server assigned player number: {self.player_num + 1}")
-                    elif data["status"] == "game_update":
-                        self.game_started = True
+            def on_message(ws, message):
+                try:
+                    print(f"Message received (first 50 chars): {message[:50]}...")
+                    # Store message for debugging
+                    self.last_message = message
 
-            # If we don't have a player_num yet, determine it
-            if self.player_num is None and not hasattr(self, 'player_num'):
-                # Default behavior if server doesn't specify - player 1 connects first
-                self.player_num = 0
-                print(f"Assuming player number: {self.player_num + 1}")
+                    # Parse message with thread safety
+                    parsed = json.loads(message)
+                    with self.state_lock:
+                        self.game_state = parsed
+                except Exception as e:
+                    print(f"Error in on_message: {e}")
 
-            # Set game started when we receive game state
-            if not self.game_started and "ball" in data:
-                self.game_started = True
-                print("Game started!")
+            def on_error(ws, error):
+                print(f"WebSocket error: {error}")
 
-        except json.JSONDecodeError:
-            print(f"Error parsing message: {message}")
-        except Exception as e:
-            print(f"Message processing error: {e}")
-
-    def connect_to_server(self):
-        """Connect to WebSocket server"""
-        print(f"Connecting to {self.server_url}...")
-        self.ws = WebSocketClient(self.server_url)
-        self.ws.set_callback(self.on_message)
-        if self.ws.connect():
-            self.connected = True
-            print("Connected to server")
-        else:
-            print("Failed to connect to server")
-
-    def send_player_update(self, x, y):
-        """Send player position update to server"""
-        if self.connected:
-            message = json.dumps({"x": x, "y": y})
-            if not self.ws.send(message):
-                print("Failed to send update to server")
+            def on_close(ws, close_status_code, close_msg):
+                print(f"WebSocket closed: {close_status_code} - {close_msg}")
                 self.connected = False
 
-    def run_game(self):
-        """Main game loop"""
-        self.connect_to_server()
+            # Create and connect WebSocket
+            self.ws = websocket.WebSocketApp(
+                self.server_url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
 
-        # Wait for connection
-        connection_timeout = 5  # seconds
-        start_time = time.time()
-        while not self.connected and time.time() - start_time < connection_timeout:
-            time.sleep(0.1)
+            # Start WebSocket connection (blocking call)
+            self.ws.run_forever()
 
-        if not self.connected:
-            print("Could not connect to server")
-            font = pygame.font.Font(None, 36)
-            self.screen.fill(WHITE)
-            text = font.render("Could not connect to server", True, RED)
-            self.screen.blit(text, (WIDTH // 2 - text.get_width() // 2, HEIGHT // 2))
-            pygame.display.flip()
-            time.sleep(3)
-            pygame.quit()
+        except Exception as e:
+            print(f"WebSocket connection error: {e}")
+            self.connected = False
+
+    def send_movement(self, dx, dy):
+        """Send movement to server"""
+        if not self.connected or not self.ws:
             return
 
-        # Main game loop
-        running = True
-        my_x, my_y = 200, 200  # Default starting position
+        try:
+            message = json.dumps({"dx": dx, "dy": dy})
+            self.ws.send(message)
+        except Exception as e:
+            print(f"Error sending movement: {e}")
 
-        while running:
-            # Handle Pygame events
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
+    def draw_circle(self, color, position, radius, border=0):
+        """Safely draw a circle with error handling"""
+        try:
+            if self.screen is None:
+                return
 
-            # Clear the screen
-            self.screen.fill(WHITE)
+            # Ensure position and radius are valid integers
+            x = int(position[0]) if position and len(position) > 0 else 0
+            y = int(position[1]) if position and len(position) > 1 else 0
+            r = int(radius) if radius else 10
 
-            # Draw center line and goal areas
-            pygame.draw.line(self.screen, GRAY, (WIDTH // 2, 0), (WIDTH // 2, HEIGHT), 2)
-            pygame.draw.circle(self.screen, GRAY, (WIDTH // 2, HEIGHT // 2), 50, 2)
+            # Draw the circle
+            pygame.draw.circle(self.screen, color, (x, y), r, border)
+        except Exception as e:
+            print(f"Error drawing circle: {e}")
 
-            # Handle player movement
-            if self.connected:
-                # Get mouse position for paddle control
-                mouse_x, mouse_y = pygame.mouse.get_pos()
+    def draw_text(self, text, color, position, size=24):
+        """Safely draw text with error handling"""
+        try:
+            if self.screen is None:
+                return
 
-                # Always update position based on mouse movement
-                my_x = max(PADDLE_RADIUS, min(mouse_x, WIDTH - PADDLE_RADIUS))
-                my_y = max(PADDLE_RADIUS, min(mouse_y, HEIGHT - PADDLE_RADIUS))
+            font = pygame.font.Font(None, size)
+            text_surface = font.render(str(text), True, color)
+            self.screen.blit(text_surface, position)
+        except Exception as e:
+            print(f"Error drawing text: {e}")
 
-                # Send position update
-                self.send_player_update(my_x, my_y)
+    def process_events(self):
+        """Process pygame events"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+                return
 
-            # Draw game elements based on current state
-            with self.lock:
-                # Draw player 1 paddle
-                pygame.draw.circle(self.screen, RED, (int(self.player1["x"]), int(self.player1["y"])), PADDLE_RADIUS)
+    def process_input(self):
+        """Process keyboard input"""
+        try:
+            dx, dy = 0, 0
+            keys = pygame.key.get_pressed()
 
-                # Draw player 2 paddle
-                pygame.draw.circle(self.screen, BLUE, (int(self.player2["x"]), int(self.player2["y"])), PADDLE_RADIUS)
+            if keys[pygame.K_LEFT]:
+                dx = -1
+            if keys[pygame.K_RIGHT]:
+                dx = 1
+            if keys[pygame.K_UP]:
+                dy = -1
+            if keys[pygame.K_DOWN]:
+                dy = 1
 
-                # Draw ball
-                pygame.draw.circle(self.screen, BLACK, (int(self.ball["x"]), int(self.ball["y"])), BALL_RADIUS)
+            if dx != 0 or dy != 0:
+                self.send_movement(dx, dy)
+        except Exception as e:
+            print(f"Error processing input: {e}")
 
-            # Draw status text
-            font = pygame.font.Font(None, 36)
-            if not self.game_started:
-                status = "Waiting for another player..."
-                text = font.render(status, True, BLACK)
-                self.screen.blit(text, (WIDTH // 2 - text.get_width() // 2, 20))
-            else:
-                if self.player_num == 0:
-                    status = "You are Player 1 (Red)"
-                else:
-                    status = "You are Player 2 (Blue)"
-                text = font.render(status, True, BLACK)
-                self.screen.blit(text, (WIDTH // 2 - text.get_width() // 2, 20))
+    def draw_debug_info(self):
+        """Draw debug information on screen"""
+        try:
+            # Connection status
+            status = "Connected" if self.connected else "Disconnected"
+            self.draw_text(f"Status: {status}", self.WHITE, (10, self.height - 40))
 
-            # Display connection status
-            status_color = GREEN if self.connected else RED
-            conn_text = font.render("Connected" if self.connected else "Disconnected", True, status_color)
-            self.screen.blit(conn_text, (WIDTH - conn_text.get_width() - 10, 10))
+            # Last message
+            if self.last_message:
+                msg_preview = self.last_message[:20] + "..." if len(self.last_message) > 20 else self.last_message
+                self.draw_text(f"Last msg: {msg_preview}", self.WHITE, (10, self.height - 20))
+        except Exception as e:
+            print(f"Error drawing debug info: {e}")
 
-            # Update the display
+    def render(self):
+        """Render the game state"""
+        try:
+            # Start with clear screen
+            if self.screen:
+                self.screen.fill(self.BLACK)
+
+            # Access game state with thread safety
+            game_state = None
+            with self.state_lock:
+                if self.game_state:
+                    # Make a shallow copy to avoid thread issues
+                    game_state = dict(self.game_state)
+
+            if not game_state:
+                # Show waiting screen
+                self.draw_text("Waiting for game data...", self.WHITE, (self.width//2 - 150, self.height//2))
+                self.draw_debug_info()
+                pygame.display.flip()
+                return
+
+            # Draw field
+            try:
+                # Get screen dimensions from server if available
+                if "game_screen_width" in game_state and "game_screen_height" in game_state:
+                    server_width = int(game_state["game_screen_width"])
+                    server_height = int(game_state["game_screen_height"])
+
+                    # Update screen size if needed
+                    if server_width != self.width or server_height != self.height:
+                        try:
+                            self.width = server_width
+                            self.height = server_height
+                            self.screen = pygame.display.set_mode((self.width, self.height))
+                        except pygame.error as e:
+                            print(f"Error resizing screen: {e}")
+
+                # Draw field outline
+                pygame.draw.rect(self.screen, self.WHITE, (0, 0, self.width, self.height), 2)
+
+                # Draw center line
+                pygame.draw.line(self.screen, self.WHITE,
+                                 (0, self.height//2), (self.width, self.height//2), 1)
+            except Exception as e:
+                print(f"Error drawing field: {e}")
+
+            # Draw players and ball with minimal error checking
+            try:
+                # Player 1
+                if "player1" in game_state:
+                    player1 = game_state["player1"]
+                    if "position" in player1 and "radius" in player1:
+                        color = self.RED  # Default color
+                        self.draw_circle(color, player1["position"], player1["radius"])
+
+                        # Draw score
+                        if "player_name" in player1 and "score" in player1:
+                            score_text = f"{player1['player_name']}: {player1['score']}"
+                            self.draw_text(score_text, self.RED, (10, 10))
+            except Exception as e:
+                print(f"Error drawing player1: {e}")
+
+            try:
+                # Player 2
+                if "player2" in game_state:
+                    player2 = game_state["player2"]
+                    if "position" in player2 and "radius" in player2:
+                        color = self.BLUE  # Default color
+                        self.draw_circle(color, player2["position"], player2["radius"])
+
+                        # Draw score
+                        if "player_name" in player2 and "score" in player2:
+                            score_text = f"{player2['player_name']}: {player2['score']}"
+                            score_width = len(score_text) * 15  # Rough estimate of text width
+                            self.draw_text(score_text, self.BLUE, (self.width - score_width - 10, 10))
+            except Exception as e:
+                print(f"Error drawing player2: {e}")
+
+            try:
+                # Ball
+                if "ball" in game_state:
+                    ball = game_state["ball"]
+                    if "position" in ball and "radius" in ball:
+                        color = self.WHITE  # Default color
+                        self.draw_circle(color, ball["position"], ball["radius"])
+            except Exception as e:
+                print(f"Error drawing ball: {e}")
+
+            # Draw debug info
+            self.draw_debug_info()
+
+            # Update display
             pygame.display.flip()
-            self.clock.tick(60)
 
-        # Clean up
-        if self.connected and self.ws:
-            self.ws.close()
-        pygame.quit()
+        except Exception as e:
+            print(f"Render error: {e}")
 
+    def run(self):
+        """Main game loop"""
+        print("Starting game loop...")
+        try:
+            while self.running:
+                # Process events and input
+                self.process_events()
+                self.process_input()
 
+                # Render game
+                self.render()
+
+                # Cap the frame rate
+                pygame.time.delay(33)  # ~30 FPS
+
+        except Exception as e:
+            print(f"Game loop error: {e}")
+        finally:
+            # Clean up
+            if self.ws:
+                self.ws.close()
+
+            pygame.quit()
+
+            # Dump last message for debugging
+            if self.last_message:
+                print("\nLast received message:")
+                print(f"{self.last_message}")
+
+            print("Game terminated.")
+
+# Run the game
 if __name__ == "__main__":
-    # Allow command line argument for server URL
-    server_url = sys.argv[1] if len(sys.argv) > 1 else "ws://localhost:8080"
-    client = AirHockeyClient(server_url)
-    client.run_game()
+    print(f"Starting Air Hockey client. Python version: {sys.version}")
+    print(f"PyGame version: {pygame.version.ver}")
+    print(f"OS: {os.name}")
+
+    try:
+        client = MinimalAirHockeyClient()
+        client.run()
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()

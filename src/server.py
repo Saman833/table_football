@@ -6,8 +6,8 @@ from websocket_server import WebsocketServer
 import time
 from src.game_engine import Game, Player
 
-player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=15, name="Player1", speed=[1, 1])
-player2 = Player(color="blue", x_coordinate=500, y_coordinate=200, score=0, radius=15, name="Player2", speed=[1, 1])
+player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=10, name="Player1", speed=[2, 2])
+player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=10, name="Player2", speed=[2, 2])
 
 
 class WebSocketServer:
@@ -23,6 +23,7 @@ class WebSocketServer:
         self.game_started = False
 
     def send_to_all(self, message):
+        message = json.dumps(message)
         for c in self.clients:
             self.server.send_message(c, message)
 
@@ -61,12 +62,11 @@ class WebSocketServer:
         )
 
     def game_loop(self):
-        # This loop calls game.game_step() every 0.3 seconds
         while True:
             if self.game_started:
                 self.game.game_step(self.moves_info)
                 self.send_to_all(self.game.get_updates())
-            time.sleep(0.1)
+            time.sleep(0.01)
 
     def update_moves(self, client, message):
         moves = json.loads(message)
