@@ -57,20 +57,17 @@ class Ball:
 
     def check_accident_with_wall(self, left_x, right_x, top_y, bottom_y):
         if self.x + self.radius > right_x - 10 or self.x - self.radius < left_x:
-            self.direction[1] *= -1
-            self.speed[0] *= .7
-            self.speed[1] *= .7
-        if self.y + self.radius > bottom_y - 10 or self.y - self.radius < top_y:
             self.direction[0] *= -1
-            self.speed[0] *= .7
-            self.speed[1] *= .7
+            
+        if self.y + self.radius > bottom_y - 10 or self.y - self.radius < top_y:
+            self.direction[1] *= -1
 
     def check_accident_with_player(self, player: Player):
         distance = ((self.x - player.x) ** 2 + (self.y - player.y) ** 2) ** 0.5
         if abs(distance - player.radius - self.radius) < 7:
             self.direction[0] *= -1
             self.direction[1] *= -1
-            self.speed = self.initial_speed
+            self.speed = self.initial_speed.copy()
 
     def check_if_goal(self):
         pass

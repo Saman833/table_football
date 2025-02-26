@@ -4,7 +4,7 @@ from math import gamma
 
 from websocket_server import WebsocketServer
 import time
-from src.game_engine import Game, Player
+from game_engine import Game, Player
 
 player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=10, name="Player1", speed=[2, 2])
 player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=10, name="Player2", speed=[2, 2])
