@@ -6,16 +6,13 @@ from websocket_server import WebsocketServer
 import time
 from game_engine import Game, Player
 
-player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=20, name="Player1", speed=[7, 7])
-player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=20, name="Player2", speed=[7, 7])
 
 
 class WebSocketServer:
-    global player1, player2
     def __init__(self, host='0.0.0.0', port=8080):
         self.server = WebsocketServer(host=host, port=port)
         self.clients = []
-        self.game = Game(player1, player2)
+        self.game = Game()
         self.moves_info = {
             "player1": [0, 0],
             "player2": [0, 0]

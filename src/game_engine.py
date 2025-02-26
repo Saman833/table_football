@@ -47,19 +47,18 @@ class Player:
             "position": [self.x, self.y],
             "speed": [self.x_speed, self.y_speed]
         }
-    def  update_boundries(self, left_x, right_x, top_y, bottom_y):
+    def  update_boundries(self, left_x, right_x,top_y,bottom_y):
         self.left_x = left_x
         self.right_x = right_x
         try : 
                 
-            if self.color =="red" :
+            if self.y < bottom_y/2 :
                 self.top_y = top_y
-                self.bottom_y = top_y/2
+                self.bottom_y = bottom_y/2
             else:
-                self.top_y = top_y/2
+                self.top_y = bottom_y/2
                 self.bottom_y = bottom_y
         except Exception as e: 
-            print("bad")
             self.top_y = top_y
             self.bottom_y = bottom_y
             pass 
@@ -108,7 +107,11 @@ class Ball:
 
 
 class Game:
-    def __init__(self, player1: Player, player2: Player):
+    def __init__(self, player1: Player = None, player2: Player= None):
+        if (player1 is None) :
+            player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=20, name="Player1", speed=[7, 7])
+        if (player2 is None) :
+            player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=20, name="Player2", speed=[7, 7])
         self.screen_width = 800
         self.screen_height = 600
         self.player1 = player1
