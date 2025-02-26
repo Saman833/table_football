@@ -26,10 +26,15 @@ class Player:
         self.y_speed = speed[1]
         self.color = color
         self.radius = radius
+        self.left_x = None 
+        self.right_x = None
+        self.top_y = None
+        self.bottom_y = None
 
     def move(self, direction):
         self.x, self.y = self.x + direction[0] * self.x_speed, self.y + direction[1] * self.y_speed
-
+        self.x -=  direction[0] * self.x_speed * (self.x + self.radius > self.right_x - 10 or self.x - self.radius < self.left_x)
+        self.y -= direction[1] * self.y_speed * (self.y + self.radius > self.bottom_y - 10 or self.y - self.radius < self.top_y)
     def get_info(self):
         return {
             "player_name": self.name,
@@ -39,6 +44,11 @@ class Player:
             "position": [self.x, self.y],
             "speed": [self.x_speed, self.y_speed]
         }
+    def  update_boundries(self, left_x, right_x, top_y, bottom_y):
+        self.left_x = left_x
+        self.right_x = right_x
+        self.top_y = top_y
+        self.bottom_y = bottom_y
 
 
 class Ball:
@@ -54,7 +64,7 @@ class Ball:
     def update_speed_time(self):
         self.speed[0] *= .99
         self.speed[1] *= .99
-
+   
     def check_accident_with_wall(self, left_x, right_x, top_y, bottom_y):
         if self.x + self.radius > right_x - 10 or self.x - self.radius < left_x:
             self.direction[0] *= -1
@@ -90,6 +100,8 @@ class Game:
         self.screen_height = 600
         self.player1 = player1
         self.player2 = player2
+        self.player1.update_boundries(0, self.screen_width, 0, self.screen_height)
+        self.player2.update_boundries(0, self.screen_width, 0, self.screen_height)
         self.ball = Ball(self.screen_width // 2, self.screen_height // 2, [0, 0], 10)
         self.ball_speed = [1, -1]
 
