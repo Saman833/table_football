@@ -87,7 +87,7 @@ class Ball:
 
     def check_accident_with_player(self, player: Player):
         distance = ((self.x - player.x) ** 2 + (self.y - player.y) ** 2) ** 0.5
-        if abs(distance - player.radius - self.radius) < 7:
+        if abs(distance - player.radius - self.radius) < 10:
             self.direction=player.directions.copy()
             self.speed = self.initial_speed.copy()
 
