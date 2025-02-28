@@ -17,7 +17,9 @@ def multiply_elements(*args):
 
 
 class Player:
-    def __init__(self, color, x_coordinate, y_coordinate, score, radius=15, name="computer", speed=[1, 1]):
+    def __init__(self, color, x_coordinate, y_coordinate, score, radius=15, name="computer", speed=None):
+        if speed is None:
+            speed = [1, 1]
         self.x = x_coordinate
         self.y = y_coordinate
         self.score = score
@@ -26,18 +28,20 @@ class Player:
         self.y_speed = speed[1]
         self.color = color
         self.radius = radius
-        self.left_x = None 
+        self.left_x = None
         self.right_x = None
         self.top_y = None
         self.bottom_y = None
-        self.directions = [0,0]
-
+        self.directions = [0, 0]
 
     def move(self, direction):
         self.directions = direction.copy()
         self.x, self.y = self.x + direction[0] * self.x_speed, self.y + direction[1] * self.y_speed
-        self.x -=  direction[0] * self.x_speed * (self.x + self.radius > self.right_x - 10 or self.x - self.radius < self.left_x)
-        self.y -= direction[1] * self.y_speed * (self.y + self.radius > self.bottom_y - 10 or self.y - self.radius < self.top_y)
+        self.x -= direction[0] * self.x_speed * (
+                    self.x + self.radius > self.right_x - 10 or self.x - self.radius < self.left_x)
+        self.y -= direction[1] * self.y_speed * (
+                    self.y + self.radius > self.bottom_y - 10 or self.y - self.radius < self.top_y)
+
     def get_info(self):
         return {
             "player_name": self.name,
@@ -47,25 +51,28 @@ class Player:
             "position": [self.x, self.y],
             "speed": [self.x_speed, self.y_speed]
         }
-    def  update_boundries(self, left_x, right_x,top_y,bottom_y):
+
+    def update_boundries(self, left_x, right_x, top_y, bottom_y):
         self.left_x = left_x
         self.right_x = right_x
-        try : 
-                
-            if self.y < bottom_y/2 :
+        try:
+
+            if self.y < bottom_y / 2:
                 self.top_y = top_y
-                self.bottom_y = bottom_y/2
+                self.bottom_y = bottom_y / 2
             else:
-                self.top_y = bottom_y/2
+                self.top_y = bottom_y / 2
                 self.bottom_y = bottom_y
-        except Exception as e: 
+        except Exception as e:
             self.top_y = top_y
             self.bottom_y = bottom_y
-            pass 
+            pass
 
 
 class Ball:
-    def __init__(self, x_coordinate, y_coordinate, speed: list, radius, direction=[1, 1], color="white"):
+    def __init__(self, x_coordinate, y_coordinate, speed: list, radius, direction=None, color="white"):
+        if direction is None:
+            direction = [1, 1]
         self.x = x_coordinate
         self.y = y_coordinate
         self.speed = speed
@@ -77,18 +84,18 @@ class Ball:
     def update_speed_time(self):
         self.speed[0] *= .99
         self.speed[1] *= .99
-   
+
     def check_accident_with_wall(self, left_x, right_x, top_y, bottom_y):
         if self.x + self.radius > right_x - 10 or self.x - self.radius < left_x:
             self.direction[0] *= -1
-            
+
         if self.y + self.radius > bottom_y - 10 or self.y - self.radius < top_y:
             self.direction[1] *= -1
 
     def check_accident_with_player(self, player: Player):
         distance = ((self.x - player.x) ** 2 + (self.y - player.y) ** 2) ** 0.5
         if abs(distance - player.radius - self.radius) < 10:
-            self.direction=player.directions.copy()
+            self.direction = player.directions.copy()
             self.speed = self.initial_speed.copy()
 
     def check_if_goal(self):
@@ -107,11 +114,13 @@ class Ball:
 
 
 class Game:
-    def __init__(self, player1: Player = None, player2: Player= None):
-        if (player1 is None) :
-            player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=20, name="Player1", speed=[7, 7])
-        if (player2 is None) :
-            player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=20, name="Player2", speed=[7, 7])
+    def __init__(self, player1: Player = None, player2: Player = None):
+        if player1 is None:
+            player1 = Player(color="red", x_coordinate=200, y_coordinate=200, score=0, radius=20, name="Player1",
+                             speed=[7, 7])
+        if player2 is None:
+            player2 = Player(color="blue", x_coordinate=200, y_coordinate=500, score=0, radius=20, name="Player2",
+                             speed=[7, 7])
         self.screen_width = 800
         self.screen_height = 600
         self.player1 = player1
