@@ -13,10 +13,12 @@ class ClientsService:
         self.clients = []
 
     def add_client(self, client):
-        index = 1 if len(self.clients) == 0 else 2
+        index = 0
+        if len(self.clients) > 0:
+            index = 1 - self.clients[0].index
         self.clients.append(Client(client, index))
         for client in self.clients:
-            print(client.client)
+            print(client.client, client.index)
 
     def get_count(self):
         return len(self.clients)
